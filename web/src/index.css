@@ -15,6 +15,8 @@ body {
   overflow: hidden;
 }
 
+button {font-size: 16px; cursor: pointer;}
+
 .grid-4 {
   display: grid;
   grid-gap: 10px;
@@ -29,3 +31,5 @@ video {
   border: 2px solid #ddd;
   border-radius: 7px;
 }
+
+.red {color: red;}

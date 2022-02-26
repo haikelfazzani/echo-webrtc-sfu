@@ -231,6 +231,15 @@ io.sockets.on("connection", (socket) => {
     }
   });
 
+  socket.on("send-message", (message) => {
+    try {
+      let roomID = socketToRoom[socket.id];      
+      io.to(roomID).emit("message", { id: socket.id, message });
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
   socket.on("disconnect", () => {
     try {
       let roomID = socketToRoom[socket.id];

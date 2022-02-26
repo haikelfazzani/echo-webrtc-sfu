@@ -3,6 +3,26 @@ import io from "socket.io-client";
 import Video from "./../Components/Video";
 import { WebRTCUser } from "../types";
 import { useParams } from "react-router-dom";
+import Chat from "Components/Chat";
+
+function setBandwidth(sdp: any) {
+  const audioBandwidth = 50;
+  const videoBandwidth = 256;
+  return sdp
+    .replace(/a=mid:audio\r\n/g, 'a=mid:audio\r\nb=AS:' + audioBandwidth + '\r\n')
+    .replace(/a=mid:video\r\n/g, 'a=mid:video\r\nb=AS:' + videoBandwidth + '\r\n')
+}
+
+const mediaConfig: any = {
+  audio: true,
+  //video: true
+  video: {
+    //frameRate: { ideal: 10, max: 15 },
+    width: 640,
+    height: 480,
+    //facingMode: "environment"
+  }
+}
 
 const pc_config = {
   iceServers: [
@@ -16,18 +36,23 @@ const pc_config = {
     },
   ],
 };
+
 const SOCKET_SERVER_URL = "http://localhost:8080";
+
+let messages: any = [];
 
 export default function Room() {
   const { roomID, videodisbaled, muted }: any = useParams();
 
   const socketRef = useRef<SocketIOClient.Socket>();
-  const localStreamRef = useRef<MediaStream>();
+  const StreamRef = useRef<MediaStream>();
   const sendPCRef = useRef<RTCPeerConnection>();
   const receivePCsRef = useRef<{ [socketId: string]: RTCPeerConnection }>({});
-  const [users, setUsers] = useState<Array<WebRTCUser>>([]);
-
   const localVideoRef = useRef<HTMLVideoElement>(null);
+
+  const [users, setUsers] = useState<Array<WebRTCUser>>([]);
+  const [mediaStatus, setmediaStatus]: any = useState({ audio: false, video: false, });
+  const [chatMessages, setChatMessages] = useState([])
 
   const closeReceivePC = useCallback((id: string) => {
     if (!receivePCsRef.current[id]) return;
@@ -38,8 +63,7 @@ export default function Room() {
   const createReceiverOffer = useCallback(
     async (pc: RTCPeerConnection, senderSocketID: string) => {
       try {
-        const sdp = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true, });
-
+        let sdp = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true, });
         console.log("create receiver offer success");
         await pc.setLocalDescription(new RTCSessionDescription(sdp));
 
@@ -95,25 +119,23 @@ export default function Room() {
     }
   }, []);
 
-  const createReceivePC = useCallback(
-    (id: string) => {
-      try {
-        console.log(`socketID(${id}) user entered`);
-        const pc = createReceiverPeerConnection(id);
-        if (!(socketRef.current && pc)) return;
-        createReceiverOffer(pc, id);
-      } catch (error) {
-        console.log(error);
-      }
-    },
+  const createReceivePC = useCallback((id: string) => {
+    try {
+      console.log(`socketID(${id}) user entered`);
+      const pc = createReceiverPeerConnection(id);
+      if (!(socketRef.current && pc)) return;
+      createReceiverOffer(pc, id);
+    } catch (error) {
+      console.log(error);
+    }
+  },
     [createReceiverOffer, createReceiverPeerConnection]
   );
 
   const createSenderOffer = useCallback(async () => {
     try {
       if (!sendPCRef.current) return;
-      const sdp = await sendPCRef.current.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false, });
-      console.log("create sender offer success");
+      let sdp = await sendPCRef.current.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false, });
       await sendPCRef.current.setLocalDescription(new RTCSessionDescription(sdp));
 
       if (!socketRef.current) return;
@@ -139,11 +161,11 @@ export default function Room() {
       console.log(e);
     };
 
-    if (localStreamRef.current) {
+    if (StreamRef.current) {
       console.log("add local stream");
-      localStreamRef.current.getTracks().forEach((track) => {
-        if (!localStreamRef.current) return;
-        pc.addTrack(track, localStreamRef.current);
+      StreamRef.current.getTracks().forEach((track) => {
+        if (!StreamRef.current) return;
+        pc.addTrack(track, StreamRef.current);
       });
     } else {
       console.log("no local stream");
@@ -154,24 +176,12 @@ export default function Room() {
 
   const getLocalStream = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia(mediaConfig);
 
       stream.getAudioTracks()[0].enabled = false;
-      //stream.getVideoTracks()[0].enabled = false;
+      stream.getVideoTracks()[0].enabled = false;
 
-      // stream.getAudioTracks().forEach(track => {
-      //   // track.enabled = muted || false;
-      //   // stream.removeTrack(track);
-      //   console.log('Audio track ---------> ', track, track.muted);
-      // });
-
-      stream.getVideoTracks().forEach(track => {
-        console.log('Video track ---------> ', track);
-        //track.enabled = videodisbaled || false;
-      });
-
-
-      localStreamRef.current = stream;
+      StreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       if (!socketRef.current) return;
 
@@ -199,6 +209,8 @@ export default function Room() {
     socketRef.current.on("userExit", (data: { id: string }) => {
       closeReceivePC(data.id);
       setUsers((users) => users.filter((user) => user.id !== data.id));
+      console.log('User exist ----------------------- > ', data.id);
+
     });
 
     socketRef.current.on("getSenderAnswer", async (data: { sdp: RTCSessionDescription }) => {
@@ -252,6 +264,11 @@ export default function Room() {
     }
     );
 
+    socketRef.current.on('message', ({ id, message }: any) => {
+      messages.push({ id, message })
+      //setChatMessages(messages);
+    });
+
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -262,17 +279,11 @@ export default function Room() {
       users.forEach((user) => closeReceivePC(user.id));
     };
     // eslint-disable-next-line
-  }, [
-    closeReceivePC,
-    createReceivePC,
-    createSenderOffer,
-    createSenderPeerConnection,
-    getLocalStream,
-  ]);
+  }, [closeReceivePC, createReceivePC, createSenderOffer, createSenderPeerConnection, getLocalStream]);
 
-  const onShareScreen = async (user: any) => {
-    const constraints: any = { cursor: true };
-    const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+  const onShareScreen = async () => {
+    const consts: any = { cursor: true };
+    const stream = await navigator.mediaDevices.getDisplayMedia(consts);
     const screenTrack = stream.getTracks()[0];
 
     if (sendPCRef && sendPCRef.current && sendPCRef.current.getSenders()) {
@@ -291,12 +302,10 @@ export default function Room() {
             const result = sendPCRef.current?.getSenders()
               .find((sender: any) => sender.track.kind === 'video');
 
-              console.log(oldTrack);
-              
+            console.log('oldTrack --------> ', oldTrack);
 
-            if (result) {
-              result.replaceTrack(res.track);
-              
+            if (result && localVideoRef && localVideoRef.current) {
+              result.replaceTrack(oldTrack);
             }
             // console.log(stream, user);
           }
@@ -305,22 +314,73 @@ export default function Room() {
     }
   }
 
+  const onMedia = (mediaType: string, stream: any) => {
+    if (stream) {
+      switch (mediaType) {
+        case 'audio':
+          const audioStatus = !stream.getAudioTracks()[0].enabled;
+          stream.getAudioTracks()[0].enabled = audioStatus;
+          setmediaStatus({ ...mediaStatus, audio: audioStatus })
+          break;
+
+        case 'cam':
+          const videoStatus = !stream.getAudioTracks()[0].enabled;
+          stream.getVideoTracks()[0].enabled = videoStatus;
+          setmediaStatus({ ...mediaStatus, video: videoStatus })
+          break;
+
+        default:
+          break;
+      }
+    }
+  }
+
+  const onSendMessage = (e: any) => {
+    e.preventDefault();
+    const message = e.target.elements[0].value;
+    if (socketRef) {
+      socketRef.current?.emit('send-message', message)
+    }
+  }
+
   return (
     <div className="grid-4">
       <div>
         <video muted ref={localVideoRef} autoPlay />
-        <button onClick={() => { onShareScreen({ id: socketRef, stream: localStreamRef }) }}>share screen</button>
+        <button onClick={() => { onMedia('audio', StreamRef.current) }}>
+          <i className={mediaStatus.audio ? "fa fa-microphone" : "fa fa-microphone-slash"}></i>
+        </button>
+
+        <button onClick={() => { onMedia('cam', StreamRef.current) }}>
+          <i className={mediaStatus.video ? "fa fa-video" : "fa fa-video-slash"}></i>
+        </button>
+        <button onClick={() => { onShareScreen() }}><i className="fa fa-tv"></i></button>
       </div>
+
+      {console.log(users)}
 
       {users.map((user, index) => (
         <div key={index}>
           <Video stream={user.stream} />
           <div>
             <span>{user.id}</span>
-            <button onClick={() => { onShareScreen(user) }}>share screen</button>
           </div>
         </div>
       ))}
+
+      <form onSubmit={onSendMessage}>
+        <input type="text" name='message' placeholder='message' required />
+        <button type='submit'>send</button>
+      </form>
+
+      {chatMessages}
+
+      <ul>
+        {chatMessages.map((m: any, i: number) => <li key={i}>
+          <span className="red">{m.id}</span>
+          <div>{m.message}</div>
+        </li>)}
+      </ul>
     </div>
   );
 };

@@ -1,6 +1,7 @@
 {
-  "name": "1-SFU",
-  "version": "1.0.0",
+  "name": "sever",
+  "version": "0.1.0",
+  "private": true,
   "description": "",
   "main": "index.js",
   "scripts": {
