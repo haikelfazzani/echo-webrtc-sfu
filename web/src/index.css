@@ -12,24 +12,57 @@ body {
 #root {
   height: 100vh;
   width: 100vw;
+  display: grid;  
+  grid-template-columns: 50% 50%;
   overflow: hidden;
+  background-color: rgb(255, 255, 255);
+  color: rgb(0, 0, 0);
 }
 
-button {font-size: 16px; cursor: pointer;}
+main {
+  width: 100%;
+  height: 100%;
+  padding: 40px;
+  position: relative;
+}
 
-.grid-4 {
+.control {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.control > div {
+  background-color: rgb(58, 58, 58);
+  padding: 10px;
+}
+/*********/
+img {
+  border-radius: 7px;
+  box-shadow: 0 13px 27px -5px hsl(240deg 30% 28% / 25%), 0 8px 16px -8px hsl(0deg 0% 0% / 30%), 0 -6px 16px -6px hsl(0deg 0% 0% / 3%);
+}
+
+.w-100 {width: 100%;}
+.h-100 {height: 100%;}
+
+.bg-dark {
+  background-color: rgb(34, 34, 34);
+  color: #fff;
+}
+
+.grid-3 {
   display: grid;
   grid-gap: 10px;
   grid-template-columns: 1fr 1fr 1fr;
-  grid-auto-columns: 1fr;
-  grid-auto-rows: 100px;
-  padding: 5px;
 }
 
-video {
-  width: 100%;
-  border: 2px solid #ddd;
-  border-radius: 7px;
-}
+.br7 {border-radius: 7px;}
 
-.red {color: red;}
+@media only screen and (max-width: 768px) {
+  #root {
+    padding: 20px;
+  }
+}

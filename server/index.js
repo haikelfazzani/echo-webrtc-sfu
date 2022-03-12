@@ -1,31 +1,21 @@
 const http = require("http");
 const express = require("express");
 const cors = require("cors");
-const socketio = require("socket.io");
 const wrtc = require("wrtc");
 
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors());
+app.use(cors('*'));
+
+const isProduction = app.get('env') === 'production' || process.env.NODE_ENV === 'production';
 
 let receiverPCs = {};
 let senderPCs = {};
 let users = {};
 let socketToRoom = {};
 
-const pc_config = {
-  iceServers: [
-    // {
-    //   urls: 'stun:[STUN_IP]:[PORT]',
-    //   'credentials': '[YOR CREDENTIALS]',
-    //   'username': '[USERNAME]'
-    // },
-    {
-      urls: "stun:stun.l.google.com:19302",
-    },
-  ],
-};
+const pc_config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }]};
 
 const isIncluded = (array, id) => array.some((item) => item.id === id);
 
@@ -49,18 +39,10 @@ const createReceiverPeerConnection = (socketID, socket, roomID) => {
   pc.ontrack = (e) => {
     if (users[roomID]) {
       if (!isIncluded(users[roomID], socketID)) {
-        users[roomID].push({
-          id: socketID,
-          stream: e.streams[0],
-        });
+        users[roomID].push({ id: socketID, stream: e.streams[0] });
       } else return;
     } else {
-      users[roomID] = [
-        {
-          id: socketID,
-          stream: e.streams[0],
-        },
-      ];
+      users[roomID] = [{ id: socketID, stream: e.streams[0] }];
     }
     socket.broadcast.to(roomID).emit("userEnter", { id: socketID });
   };
@@ -97,9 +79,7 @@ const createSenderPeerConnection = (
     //console.log(e);
   };
 
-  const sendUser = users[roomID].filter(
-    (user) => user.id === senderSocketID
-  )[0];
+  const sendUser = users[roomID].filter((user) => user.id === senderSocketID)[0];
   sendUser.stream.getTracks().forEach((track) => {
     pc.addTrack(track, sendUser.stream);
   });
@@ -140,20 +120,26 @@ const closeSenderPCs = (socketID) => {
 
   senderPCs[socketID].forEach((senderPC) => {
     senderPC.pc.close();
-    const eachSenderPC = senderPCs[senderPC.id].filter(
-      (sPC) => sPC.id === socketID
-    )[0];
+    const eachSenderPC = senderPCs[senderPC.id].filter((sPC) => sPC.id === socketID)[0];
     if (!eachSenderPC) return;
     eachSenderPC.pc.close();
-    senderPCs[senderPC.id] = senderPCs[senderPC.id].filter(
-      (sPC) => sPC.id !== socketID
-    );
+    senderPCs[senderPC.id] = senderPCs[senderPC.id].filter((sPC) => sPC.id !== socketID);
   });
 
   delete senderPCs[socketID];
 };
 
-const io = socketio.listen(server);
+const io = require('socket.io')(server, {
+  cors: {
+    origin: isProduction
+      ? ["https://instant-sharing.onrender.com"]
+      : ["http://localhost:3000"],
+  },
+  autoConnect: true,
+  transports: ['websocket', 'polling'],
+  credentials: false,
+  allowEIO3: true
+});
 
 io.sockets.on("connection", (socket) => {
   socket.on("joinRoom", (data) => {
@@ -168,16 +154,9 @@ io.sockets.on("connection", (socket) => {
   socket.on("senderOffer", async (data) => {
     try {
       socketToRoom[data.senderSocketID] = data.roomID;
-      let pc = createReceiverPeerConnection(
-        data.senderSocketID,
-        socket,
-        data.roomID
-      );
+      let pc = createReceiverPeerConnection(data.senderSocketID, socket, data.roomID);
       await pc.setRemoteDescription(data.sdp);
-      let sdp = await pc.createAnswer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
+      let sdp = await pc.createAnswer({offerToReceiveAudio: true, offerToReceiveVideo: false});
       await pc.setLocalDescription(sdp);
       socket.join(data.roomID);
       io.to(data.senderSocketID).emit("getSenderAnswer", { sdp });
@@ -189,7 +168,7 @@ io.sockets.on("connection", (socket) => {
   socket.on("senderCandidate", async (data) => {
     try {
       let pc = receiverPCs[data.senderSocketID];
-      await pc.addIceCandidate(new wrtc.RTCIceCandidate(data.candidate));
+      if(pc) await pc.addIceCandidate(new wrtc.RTCIceCandidate(data.candidate));
     } catch (error) {
       console.log(error);
     }
